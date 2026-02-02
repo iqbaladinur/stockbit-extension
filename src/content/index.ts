@@ -1,10 +1,13 @@
 // Content script - injected into stockbit.com/watchlist
 // Highlights rows based on ruleset evaluation
 
-import { evaluateStock, EvaluationResult } from '../lib/ruleset'
+import { evaluateStock, EvaluationResult, RulesetType, DEFAULT_RULESET } from '../lib/ruleset'
 import { findWatchlistTable, extractColumnHeaders, parseRow } from '../lib/tableParser'
 
 console.log('[Stockbit Screener] Content script loaded on:', window.location.href)
+
+// Current ruleset setting
+let currentRuleset: RulesetType = DEFAULT_RULESET
 
 // Styles for highlighting
 const STYLES = {
@@ -160,36 +163,37 @@ function formatValue(value: number | null): string {
 /**
  * Process all rows in the table
  */
-function processTable(): void {
+function processTable(forceReprocess = false): void {
   const table = findWatchlistTable()
-  
+
   if (!table) {
     console.log('[Stockbit Screener] No watchlist table found')
     return
   }
-  
-  console.log('[Stockbit Screener] Found watchlist table, processing...')
-  
+
+  console.log(`[Stockbit Screener] Found watchlist table, processing with ${currentRuleset} ruleset...`)
+
   const headers = extractColumnHeaders(table)
   console.log('[Stockbit Screener] Headers:', headers)
-  
+
   const rows = table.querySelectorAll('tbody tr')
   let passCount = 0
   let failCount = 0
-  
+
   rows.forEach((row) => {
     const tr = row as HTMLTableRowElement
-    
-    // Skip if already processed
-    if (processedRows.has(tr)) return
-    
+
+    // Skip if already processed (unless force reprocess)
+    if (!forceReprocess && processedRows.has(tr)) return
+
     const data = parseRow(tr, headers)
-    
+
     if (!data.symbol) return
-    
-    const result = evaluateStock(data)
-    
+
+    const result = evaluateStock(data, currentRuleset)
+
     console.log(`[Stockbit Screener] ${data.symbol}:`, {
+      ruleset: currentRuleset,
       entryReady: result.entryReady,
       score: result.score,
       failed: result.failedConditions,
@@ -201,15 +205,15 @@ function processTable(): void {
         bandarValue: data.bandarValue,
       }
     })
-    
+
     styleRow(tr, result)
     processedRows.add(tr)
-    
+
     if (result.entryReady) passCount++
     else failCount++
   })
-  
-  console.log(`[Stockbit Screener] Processed ${passCount + failCount} stocks: ${passCount} passed, ${failCount} failed`)
+
+  console.log(`[Stockbit Screener] Processed ${passCount + failCount} stocks: ${passCount} passed, ${failCount} failed (${currentRuleset})`)
 }
 
 // Global observer instance
@@ -268,30 +272,33 @@ function teardownObserver(): void {
  */
 async function init(): Promise<void> {
   console.log('[Stockbit Screener] Initializing...')
-  
+
   // Check if we're on the watchlist page
   if (!window.location.href.includes('stockbit.com/watchlist')) {
     console.log('[Stockbit Screener] Not on watchlist page, skipping...')
     return
   }
-  
+
   // Get settings
-  const { realtimeMode } = await chrome.storage.sync.get(['realtimeMode'])
+  const { realtimeMode, ruleset } = await chrome.storage.sync.get(['realtimeMode', 'ruleset'])
   const isRealtime = realtimeMode !== undefined ? realtimeMode : true
-  
+  currentRuleset = ruleset || DEFAULT_RULESET
+
+  console.log(`[Stockbit Screener] Settings loaded: realtime=${isRealtime}, ruleset=${currentRuleset}`)
+
   // Wait for table to load
   const checkTable = setInterval(() => {
     const table = findWatchlistTable()
     if (table) {
       clearInterval(checkTable)
       processTable()
-      
+
       if (isRealtime) {
         setupObserver()
       }
     }
   }, 500)
-  
+
   // Stop checking after 30 seconds
   setTimeout(() => {
     clearInterval(checkTable)
@@ -301,33 +308,33 @@ async function init(): Promise<void> {
 // Listen for messages from popup
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   console.log('[Stockbit Screener] Message received:', message)
-  
+
   if (message.type === 'SCAN_TABLE') {
     processTable()
     sendResponse({ success: true })
   }
-  
+
   if (message.type === 'GET_RESULTS') {
     const table = findWatchlistTable()
     if (!table) {
       sendResponse({ error: 'No table found' })
       return
     }
-    
+
     const headers = extractColumnHeaders(table)
     const rows = table.querySelectorAll('tbody tr')
     const results: EvaluationResult[] = []
-    
+
     rows.forEach((row) => {
       const data = parseRow(row as HTMLTableRowElement, headers)
       if (data.symbol) {
-        results.push(evaluateStock(data))
+        results.push(evaluateStock(data, currentRuleset))
       }
     })
-    
-    sendResponse({ results })
+
+    sendResponse({ results, ruleset: currentRuleset })
   }
-  
+
   if (message.type === 'SET_REALTIME_MODE') {
     if (message.enabled) {
       setupObserver()
@@ -336,7 +343,18 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     }
     sendResponse({ success: true })
   }
-  
+
+  if (message.type === 'SET_RULESET') {
+    const newRuleset = message.ruleset as RulesetType
+    if (newRuleset !== currentRuleset) {
+      console.log(`[Stockbit Screener] Switching ruleset: ${currentRuleset} -> ${newRuleset}`)
+      currentRuleset = newRuleset
+      // Force reprocess all rows with new ruleset
+      processTable(true)
+    }
+    sendResponse({ success: true, ruleset: currentRuleset })
+  }
+
   return true
 })
 
