@@ -249,8 +249,8 @@ onMounted(() => {
           <div class="border-b border-slate-700/50 pb-3">
             <h4 class="font-bold text-red-400 mb-2">🚫 Hard Reject jika:</h4>
             <div class="space-y-1 text-slate-400">
-              <div><span class="text-red-400 font-mono">E1</span> Bandar Accum/Dist &lt; 0 (distribusi)</div>
-              <div><span class="text-red-400 font-mono">E2</span> Net Foreign &lt; 0 DAN Streak = 0</div>
+              <div><span class="text-red-400 font-mono">E1</span> Kolom <span class="text-slate-300 bg-slate-700/50 px-1 rounded">Bandar Accum/Dist</span> &lt; 0</div>
+              <div><span class="text-red-400 font-mono">E2</span> Kolom <span class="text-slate-300 bg-slate-700/50 px-1 rounded">Net Foreign Buy/Sell</span> &lt; 0 dan Streak = 0</div>
             </div>
           </div>
 
