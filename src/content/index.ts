@@ -340,10 +340,66 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   return true
 })
 
+// Track current URL for SPA navigation detection
+let currentUrl = window.location.href
+
+/**
+ * Handle SPA navigation - re-init when URL changes to watchlist
+ */
+function handleNavigation(): void {
+  if (currentUrl !== window.location.href) {
+    const wasOnWatchlist = currentUrl.includes('stockbit.com/watchlist')
+    currentUrl = window.location.href
+    const isOnWatchlist = currentUrl.includes('stockbit.com/watchlist')
+
+    console.log('[Stockbit Screener] URL changed:', currentUrl)
+
+    // If navigated to watchlist, re-initialize
+    if (isOnWatchlist && !wasOnWatchlist) {
+      console.log('[Stockbit Screener] Navigated to watchlist, re-initializing...')
+      // Clear processed rows to allow re-processing
+      init()
+    }
+
+    // If navigated away from watchlist, teardown observer
+    if (!isOnWatchlist && wasOnWatchlist) {
+      teardownObserver()
+    }
+  }
+}
+
+/**
+ * Setup URL change detection for SPA navigation
+ */
+function setupNavigationListener(): void {
+  // Listen for popstate (back/forward button)
+  window.addEventListener('popstate', handleNavigation)
+
+  // Intercept pushState and replaceState for SPA navigation
+  const originalPushState = history.pushState.bind(history)
+  const originalReplaceState = history.replaceState.bind(history)
+
+  history.pushState = function(...args) {
+    originalPushState(...args)
+    handleNavigation()
+  }
+
+  history.replaceState = function(...args) {
+    originalReplaceState(...args)
+    handleNavigation()
+  }
+
+  console.log('[Stockbit Screener] Navigation listener setup complete')
+}
+
 // Initialize when DOM is ready
 if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', init)
+  document.addEventListener('DOMContentLoaded', () => {
+    setupNavigationListener()
+    init()
+  })
 } else {
+  setupNavigationListener()
   init()
 }
 
