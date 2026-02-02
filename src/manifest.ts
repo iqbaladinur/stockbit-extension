@@ -25,7 +25,7 @@ export default defineManifest({
   },
   content_scripts: [
     {
-      matches: ['<all_urls>'],
+      matches: ['https://stockbit.com/watchlist*', 'https://www.stockbit.com/watchlist*'],
       js: ['src/content/index.ts'],
     },
   ],
