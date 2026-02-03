@@ -128,27 +128,119 @@ function markRowProcessed(row: HTMLTableRowElement): void {
   row.setAttribute(PROCESSED_HASH_ATTR, getRowDataHash(row))
 }
 
+// Tooltip definitions for condition codes (with value placeholders)
+const CONDITION_TOOLTIPS: Record<string, { desc: string; valueKey?: string }> = {
+  // Group A - Streak
+  'A1': { desc: 'Net Foreign Buy Streak >= 2 hari', valueKey: 'streak' },
+  'A2': { desc: 'Net Foreign Buy Streak >= 3 hari (bonus)', valueKey: 'streak' },
+
+  // Group B - Foreign Flow
+  'B1': { desc: 'Net Foreign Buy/Sell > 0 (positif)', valueKey: 'foreign' },
+  'B2': { desc: 'Net Foreign > MA10', valueKey: 'foreignVsMa10' },
+  'B3': { desc: 'Net Foreign > MA20', valueKey: 'foreignVsMa20' },
+
+  // Group C - MA Comparison
+  'C1': { desc: 'Net Foreign MA10 > 0 (tren positif)', valueKey: 'ma10' },
+  'C2': { desc: 'Net Foreign MA20 > 0 (tren positif)', valueKey: 'ma20' },
+
+  // Group D - Bandar
+  'D1': { desc: 'Bandar Accum/Dist > 0 (akumulasi)', valueKey: 'bandarAD' },
+  'D2': { desc: 'Bandar Value > 0 (net buy)', valueKey: 'bandarVal' },
+  'D3': { desc: 'Bandar Value > MA10', valueKey: 'bandarVsMa10' },
+
+  // Group E - Hard Reject
+  'E1': { desc: 'REJECT: Bandar distribusi', valueKey: 'bandarAD' },
+  'E2': { desc: 'REJECT: Foreign negatif + Streak rendah', valueKey: 'foreignStreak' },
+
+  // Weekly/Monthly Flow
+  'W1': { desc: '1 Week Foreign Flow > 0', valueKey: 'weekFlow' },
+  'M1': { desc: '1 Month Foreign Flow > 0', valueKey: 'monthFlow' },
+}
+
+/**
+ * Get tooltip text for a condition code with actual values
+ */
+function getConditionTooltip(condition: string, data: import('../lib/ruleset').StockData): string {
+  const code = condition.split(':')[0]
+  const tooltipDef = CONDITION_TOOLTIPS[code]
+
+  if (!tooltipDef) return condition
+
+  let tooltip = tooltipDef.desc
+
+  // Add actual values based on valueKey
+  const valueKey = tooltipDef.valueKey
+  if (valueKey) {
+    const values: Record<string, string> = {
+      streak: `Streak: ${data.netForeignBuyStreak ?? '-'} hari`,
+      foreign: `Foreign: ${formatValue(data.netForeignBuySell)}`,
+      ma10: `MA10: ${formatValue(data.netForeignBuySellMA10)}`,
+      ma20: `MA20: ${formatValue(data.netForeignBuySellMA20)}`,
+      foreignVsMa10: `Foreign: ${formatValue(data.netForeignBuySell)} vs MA10: ${formatValue(data.netForeignBuySellMA10)}`,
+      foreignVsMa20: `Foreign: ${formatValue(data.netForeignBuySell)} vs MA20: ${formatValue(data.netForeignBuySellMA20)}`,
+      bandarAD: `B.Accum/Dist: ${data.bandarAccumDist?.toFixed(2) ?? '-'}`,
+      bandarVal: `Bandar Value: ${formatValue(data.bandarValue)}`,
+      bandarVsMa10: `Bandar: ${formatValue(data.bandarValue)} vs MA10: ${formatValue(data.bandarValueMA10)}`,
+      foreignStreak: `Foreign: ${formatValue(data.netForeignBuySell)}, Streak: ${data.netForeignBuyStreak ?? '-'}`,
+      weekFlow: `1W Flow: ${formatValue(data.oneWeekNetForeignFlow)}`,
+      monthFlow: `1M Flow: ${formatValue(data.oneMonthNetForeignFlow)}`,
+    }
+    tooltip += `\n📊 ${values[valueKey] || ''}`
+  }
+
+  return tooltip
+}
+
 /**
  * Apply styling to a row based on evaluation result
  */
 function styleRow(row: HTMLTableRowElement, result: EvaluationResult): void {
   const style = result.entryReady ? STYLES.pass : STYLES.fail
   row.setAttribute('style', style)
-  
+
   // Add score panel to show status
   const firstCell = row.querySelector('td')
   if (firstCell) {
     // Remove existing panel
     const existingPanel = firstCell.querySelector('.screener-panel')
     if (existingPanel) existingPanel.remove()
-    
+
     // Create score panel
     const panel = document.createElement('div')
     panel.className = 'screener-panel'
-    
+
     const bgColor = result.entryReady ? '#10B981' : '#EF4444'
     const borderColor = result.entryReady ? '#059669' : '#DC2626'
-    
+
+    // Build conditions HTML with tooltips
+    const passedConditionsHtml = result.passedConditions.map(c => `
+      <span
+        title="${getConditionTooltip(c, result.data).replace(/"/g, '&quot;')}"
+        style="
+          background: #10B98120;
+          color: #059669;
+          padding: 2px 6px;
+          border-radius: 4px;
+          font-size: 9px;
+          font-weight: 500;
+          cursor: help;
+        ">✓ ${c.split(':')[0]}</span>
+    `).join('')
+
+    const failedConditionsHtml = result.failedConditions.map(c => `
+      <span
+        title="${getConditionTooltip(c, result.data).replace(/"/g, '&quot;')}"
+        style="
+          background: #EF444420;
+          color: #DC2626;
+          padding: 2px 6px;
+          border-radius: 4px;
+          font-size: 9px;
+          font-weight: 500;
+          cursor: help;
+        ">✗ ${c.split(':')[0]}</span>
+    `).join('')
+
     panel.innerHTML = `
       <div style="
         display: flex;
@@ -169,50 +261,40 @@ function styleRow(row: HTMLTableRowElement, result: EvaluationResult): void {
           padding-bottom: 6px;
           border-bottom: 1px solid ${borderColor}30;
         ">
-          <span style="
-            display: inline-flex;
-            align-items: center;
-            gap: 4px;
-            font-weight: 700;
-            color: ${bgColor};
-          ">
-            ${result.entryReady ? '✅' : '❌'} 
+          <span
+            title="${result.entryReady
+              ? 'Semua kondisi entry terpenuhi. Saham ini layak untuk dipertimbangkan entry.'
+              : 'Belum memenuhi semua kondisi entry. Tunggu konfirmasi lebih lanjut.'}"
+            style="
+              display: inline-flex;
+              align-items: center;
+              gap: 4px;
+              font-weight: 700;
+              color: ${bgColor};
+              cursor: help;
+            ">
+            ${result.entryReady ? '✅' : '❌'}
             ${result.entryReady ? 'ENTRY READY' : 'NOT READY'}
           </span>
-          <span style="
-            background: ${bgColor};
-            color: white;
-            padding: 2px 8px;
-            border-radius: 10px;
-            font-weight: 700;
-            font-size: 10px;
-          ">Score: ${result.score}</span>
+          <span
+            title="Skor total dari semua kondisi yang terpenuhi. Semakin tinggi semakin baik."
+            style="
+              background: ${bgColor};
+              color: white;
+              padding: 2px 8px;
+              border-radius: 10px;
+              font-weight: 700;
+              font-size: 10px;
+              cursor: help;
+            ">Score: ${result.score}</span>
         </div>
-        
+
         <!-- Conditions -->
         <div style="display: flex; flex-wrap: wrap; gap: 3px; margin-top: 2px;">
-          ${result.passedConditions.map(c => `
-            <span style="
-              background: #10B98120;
-              color: #059669;
-              padding: 2px 6px;
-              border-radius: 4px;
-              font-size: 9px;
-              font-weight: 500;
-            ">✓ ${c.split(':')[0]}</span>
-          `).join('')}
-          ${result.failedConditions.map(c => `
-            <span style="
-              background: #EF444420;
-              color: #DC2626;
-              padding: 2px 6px;
-              border-radius: 4px;
-              font-size: 9px;
-              font-weight: 500;
-            ">✗ ${c.split(':')[0]}</span>
-          `).join('')}
+          ${passedConditionsHtml}
+          ${failedConditionsHtml}
         </div>
-        
+
         <!-- Key Values -->
         <div style="
           display: grid;
@@ -224,19 +306,27 @@ function styleRow(row: HTMLTableRowElement, result: EvaluationResult): void {
           font-size: 9px;
           color: #666;
         ">
-          <div>
+          <div title="Net Foreign Buy/Sell hari ini
+${(result.data.netForeignBuySell ?? 0) > 0 ? '✅ Positif = Foreign net BUY' : '❌ Negatif = Foreign net SELL'}
+📊 MA10: ${formatValue(result.data.netForeignBuySellMA10)}
+📊 MA20: ${formatValue(result.data.netForeignBuySellMA20)}" style="cursor: help;">
             <span style="color: #999;">Foreign:</span>
             <span style="color: ${(result.data.netForeignBuySell ?? 0) > 0 ? '#10B981' : '#EF4444'}; font-weight: 600;">
               ${formatValue(result.data.netForeignBuySell)}
             </span>
           </div>
-          <div>
+          <div title="Foreign Buy Streak (hari berturut-turut)
+${(result.data.netForeignBuyStreak ?? 0) >= 2 ? '✅ >= 2 hari (OK untuk entry)' : '❌ < 2 hari (belum cukup)'}
+${(result.data.netForeignBuyStreak ?? 0) >= 3 ? '🌟 >= 3 hari (bonus point!)' : ''}" style="cursor: help;">
             <span style="color: #999;">Streak:</span>
             <span style="color: ${(result.data.netForeignBuyStreak ?? 0) >= 2 ? '#10B981' : '#EF4444'}; font-weight: 600;">
               ${result.data.netForeignBuyStreak ?? '-'}
             </span>
           </div>
-          <div>
+          <div title="Bandar Accumulation/Distribution
+${(result.data.bandarAccumDist ?? 0) > 0 ? '✅ Positif = Bandar AKUMULASI' : '❌ Negatif = Bandar DISTRIBUSI (hindari!)'}
+📊 Bandar Value: ${formatValue(result.data.bandarValue)}
+📊 Bandar MA10: ${formatValue(result.data.bandarValueMA10)}" style="cursor: help;">
             <span style="color: #999;">B.A/D:</span>
             <span style="color: ${(result.data.bandarAccumDist ?? 0) > 0 ? '#10B981' : '#EF4444'}; font-weight: 600;">
               ${result.data.bandarAccumDist?.toFixed(2) ?? '-'}
@@ -245,7 +335,7 @@ function styleRow(row: HTMLTableRowElement, result: EvaluationResult): void {
         </div>
       </div>
     `
-    
+
     // Append panel to the first cell container
     const container = firstCell.querySelector('.sc-50150f6d-0') || firstCell
     container.appendChild(panel)
