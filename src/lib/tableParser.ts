@@ -27,17 +27,31 @@ const COLUMN_MAPPINGS: Record<string, keyof StockData> = {
 export function extractColumnHeaders(table: HTMLTableElement): string[] {
   const headers: string[] = []
   const headerRow = table.querySelector('thead tr')
-  
+
   if (!headerRow) return headers
-  
+
   const ths = headerRow.querySelectorAll('th')
   ths.forEach((th) => {
-    // Get text from the <p> element inside
+    // Try multiple ways to get header text
+    // 1. From <p> element
     const pElement = th.querySelector('p')
-    const text = pElement?.textContent?.trim().toLowerCase() || ''
+    let text = pElement?.textContent?.trim().toLowerCase() || ''
+
+    // 2. If no <p>, try span
+    if (!text) {
+      const spanElement = th.querySelector('span')
+      text = spanElement?.textContent?.trim().toLowerCase() || ''
+    }
+
+    // 3. If still no text, get direct text content
+    if (!text) {
+      text = th.textContent?.trim().toLowerCase() || ''
+    }
+
     headers.push(text)
   })
-  
+
+  console.log('[Stockbit Screener] Extracted headers:', headers)
   return headers
 }
 
@@ -72,7 +86,7 @@ function extractPrice(cell: HTMLTableCellElement): number | null {
  */
 export function parseRow(row: HTMLTableRowElement, headers: string[]): StockData {
   const cells = row.querySelectorAll('td')
-  
+
   const data: StockData = {
     symbol: '',
     price: null,
@@ -87,32 +101,47 @@ export function parseRow(row: HTMLTableRowElement, headers: string[]): StockData
     bandarValueMA10: null,
     bandarValueMA20: null,
   }
-  
+
+  // Debug: log header to cell mapping
+  const debugMapping: Record<string, string> = {}
+
   cells.forEach((cell, index) => {
     const header = headers[index]
-    
+    const cellText = cell.textContent?.trim() || ''
+
     if (!header) return
-    
+
     // Special handling for Symbol (first column)
     if (header === 'symbol') {
       data.symbol = extractSymbol(cell as HTMLTableCellElement)
+      debugMapping[header] = data.symbol
       return
     }
-    
+
     // Special handling for Price
     if (header === 'price') {
       data.price = extractPrice(cell as HTMLTableCellElement)
+      debugMapping[header] = String(data.price)
       return
     }
-    
+
     // Map other headers to fields
     const field = mapHeaderToField(header)
     if (field && field !== 'symbol' && field !== 'price') {
-      const value = normalizeValue(cell.textContent || '')
+      const value = normalizeValue(cellText)
       ;(data as unknown as Record<string, number | string | null>)[field] = value
+      debugMapping[header] = `${cellText} -> ${field}=${value}`
+    } else if (!field && cellText) {
+      // Log unmapped headers for debugging
+      debugMapping[header] = `UNMAPPED: ${cellText}`
     }
   })
-  
+
+  // Only log debug for first few rows to avoid spam
+  if (data.symbol) {
+    console.log(`[Stockbit Screener] Parsed ${data.symbol}:`, debugMapping)
+  }
+
   return data
 }
 
