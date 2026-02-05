@@ -122,7 +122,7 @@ async function copyToClipboard() {
 
 function askChatGPT() {
   const prompt = encodeURIComponent(llmFriendlyData.value)
-  chrome.tabs.create({ url: `https://chatgpt.com/?q=${prompt}` })
+  chrome.tabs.create({ url: `https://chat.openai.com/?q=${prompt}` })
 }
 
 function askClaude() {
